@@ -10,6 +10,9 @@ import logging
 import tempfile
 from typing import Optional, Tuple, Dict, Any, List
 
+# Third-party imports
+import numpy as np
+from scipy import ndimage
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -19,7 +22,7 @@ from telegram.ext import (
     ContextTypes,
 )
 from telegram.constants import ParseMode
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageStat
+from PIL import Image, ImageDraw, ImageFont
 
 # Configure logging
 logging.basicConfig(
@@ -36,7 +39,6 @@ FONT_PATH = os.getenv("FONT_PATH", None)
 # Optional configuration
 WATERMARK_DETECTION_THRESHOLD = int(os.getenv("WATERMARK_DETECTION_THRESHOLD", "30"))
 WATERMARK_COLOR_DIFFERENCE = int(os.getenv("WATERMARK_COLOR_DIFFERENCE", "50"))
-PORT = int(os.getenv("PORT", "8080"))  # For health checks
 
 if not BOT_TOKEN:
     logger.error("BOT_TOKEN environment variable is not set!")
@@ -62,7 +64,6 @@ class AutomaticWatermarkDetector:
         if img.mode == 'RGBA':
             img = img.convert('RGB')
         
-        import numpy as np
         img_array = np.array(img)
         
         # Method 1: Corner-based detection (most common)
@@ -87,7 +88,6 @@ class AutomaticWatermarkDetector:
     
     def _detect_text_regions(self, img_array: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Detect text-like regions."""
-        import numpy as np
         regions = []
         
         if len(img_array.shape) == 3:
@@ -102,7 +102,6 @@ class AutomaticWatermarkDetector:
         edge_mask = gradient_magnitude > self.detection_threshold
         
         if edge_mask.any():
-            from scipy import ndimage
             dilated = ndimage.binary_dilation(edge_mask, iterations=2)
             labeled, num_features = ndimage.label(dilated)
             
@@ -121,7 +120,6 @@ class AutomaticWatermarkDetector:
     
     def _detect_uniform_regions(self, img_array: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Detect uniform colored regions."""
-        import numpy as np
         regions = []
         
         if len(img_array.shape) == 3:
@@ -130,6 +128,9 @@ class AutomaticWatermarkDetector:
             for scale in [0.1, 0.15]:
                 window_h = int(h * scale)
                 window_w = int(w * scale)
+                
+                if window_h < 10 or window_w < 10:
+                    continue
                 
                 for y in range(0, h - window_h, window_h // 2):
                     for x in range(0, w - window_w, window_w // 2):
@@ -152,7 +153,6 @@ class AutomaticWatermarkDetector:
     
     def _detect_corner_watermarks(self, img_array: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Detect corner watermarks."""
-        import numpy as np
         regions = []
         h, w = img_array.shape[:2]
         
@@ -234,7 +234,7 @@ class AutomaticWatermarkDetector:
         filtered = []
         for x1, y1, x2, y2 in regions:
             area = (x2 - x1) * (y2 - y1)
-            area_ratio = area / img_area
+            area_ratio = area / img_area if img_area > 0 else 0
             
             if 0.005 < area_ratio < 0.3:
                 filtered.append((max(0, x1), max(0, y1), min(img_w, x2), min(img_h, y2)))
@@ -308,7 +308,6 @@ class SmartWatermarkReplacer:
     
     def _remove_watermarks(self, img: Image.Image, regions: List[Tuple[int, int, int, int]]) -> Image.Image:
         """Remove detected watermarks."""
-        import numpy as np
         draw = ImageDraw.Draw(img)
         img_array = np.array(img)
         
@@ -598,6 +597,19 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main() -> None:
     """Start the bot."""
+    logger.info("Starting bot initialization...")
+    
+    try:
+        # Test imports
+        import numpy
+        import scipy
+        logger.info(f"NumPy version: {numpy.__version__}")
+        logger.info(f"SciPy version: {scipy.__version__}")
+        logger.info(f"Pillow version: {Image.__version__}")
+    except Exception as e:
+        logger.error(f"Import error: {e}")
+        sys.exit(1)
+    
     application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start_command))
@@ -608,7 +620,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.VIDEO, handle_video))
     application.add_error_handler(error_handler)
     
-    logger.info("Bot started!")
+    logger.info("🤖 Bot started successfully!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
