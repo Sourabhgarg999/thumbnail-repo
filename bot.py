@@ -2,10 +2,28 @@ import os
 import sys
 import time
 import asyncio
+import http.server
+import threading
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram.errors import FloodWait
+
+# --- RENDER PORT BINDING HACK (Keeps Web Service Alive) ---
+class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(b"Bot is running smoothly!")
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = http.server.HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+# Start the background server thread before the bot begins running
+threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- SYSTEM INTEGRITY CONFIGURATIONS ---
 API_ID = int(os.environ.get("API_ID", 0))
@@ -13,7 +31,7 @@ API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 MONGO_URI = os.environ.get("MONGO_URI", "")
 
-# Parse administrative user white-list (comma separated string of numbers in environment)
+# Parse administrative user white-list
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
 
 # Initialize Bot Instance
@@ -32,7 +50,7 @@ IS_PROCESSING = False
 def is_authorized_user():
     async def func(flt, client, message: Message):
         if not SUDO_USERS:
-            return True # If empty, allows public access. Recommended to set your ID!
+            return True
         return message.from_user.id in SUDO_USERS
     return filters.create(func)
 
@@ -42,9 +60,9 @@ async def fetch_user_profile(user_id):
     if not profile:
         profile = {
             "user_id": user_id,
-            "presets": {},          # Format: {"preset_name": "telegram_file_id"}
+            "presets": {},          
             "active_preset": None,
-            "global_caption": None, # If None, dynamically reads file metadata
+            "global_caption": None, 
             "as_document": False,
             "target_channel": None,
             "temp_rename": None
@@ -89,7 +107,6 @@ def generate_metadata_caption(media, custom_caption=None):
     if custom_caption:
         return custom_caption
         
-    # Read attributes provided in Telegram's incoming file schema natively
     file_name = media.file_name or "video.mp4"
     file_size = f"{media.file_size / (1024*1024):.2f} MB"
     
@@ -202,10 +219,3 @@ async def trigger_dashboard(client: Client, message: Message):
     profile = await fetch_user_profile(user_id)
     
     media = message.video or message.document
-    chosen_name = profile.get("temp_rename") or media.file_name or "video.mp4"
-    format_type = "📄 Raw File Document" if profile.get("as_document") else "🎥 Playable Media Container"
-    active_thumb = profile.get("active_preset") or "None ❌ (Uses Native Frame)"
-    
-    dashboard_ui = (
-        "🏁 **Omega Media Processing Terminal**\n\n"
-        f"📦 **Output Identity:** `{chosen_name}`\n"
