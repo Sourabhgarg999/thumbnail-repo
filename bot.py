@@ -4,7 +4,6 @@ import time
 import asyncio
 import threading
 import http.server
-import urllib.parse
 
 # --- CRITICAL PYTHON 3.14+ ASYNCIO EVENT LOOP FIX ---
 try:
@@ -34,26 +33,11 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# --- INFRASTRUCTURE CONFIGURATIONS & URI AUTO-ESCAPE ---
+# --- INFRASTRUCTURE CONFIGURATIONS ---
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 MONGO_URI = os.environ.get("MONGO_URI", "")
-
-# Automatically fix raw connection string characters to avoid RFC 3986 parsing errors
-if MONGO_URI and "@" in MONGO_URI and ":" in MONGO_URI:
-    try:
-        # Split string safely to extract credentials cleanly
-        prefix, remainder = MONGO_URI.split("://", 1)
-        userinfo, hostinfo = remainder.rsplit("@", 1)
-        username, password = userinfo.split(":", 1)
-        
-        # Escape special symbols automatically
-        safe_user = urllib.parse.quote_plus(username)
-        safe_pass = urllib.parse.quote_plus(password)
-        MONGO_URI = f"{prefix}://{safe_user}:{safe_pass}@{hostinfo}"
-    except Exception:
-        pass # Fallback to original string if structure differs
 
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
 
@@ -183,7 +167,7 @@ async def help_command(client: Client, message: Message):
 async def set_caption(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setcaption Write your text here`")
-    caption_txt = message.text.split(None, 1)
+    caption_txt = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "global_caption", caption_txt)
     await message.reply_text("✅ **Custom caption template locked successfully.**")
 
@@ -196,7 +180,7 @@ async def clear_caption(client: Client, message: Message):
 async def set_name(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setname filename.mp4` (Include extension!)")
-    target_name = message.text.split(None, 1)
+    target_name = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "temp_rename", target_name)
     await message.reply_text(f"✏️ **Next queued transaction file title targeted as:** `{target_name}`")
 
@@ -204,7 +188,7 @@ async def set_name(client: Client, message: Message):
 async def set_channel(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setchannel @mychannelusername`")
-    channel_target = message.text.split(None, 1)
+    channel_target = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "target_channel", channel_target)
     await message.reply_text(f"📢 **Distribution Target set to:** `{channel_target}`")
 
@@ -228,3 +212,15 @@ async def trigger_dashboard(client: Client, message: Message):
     profile = await fetch_user_profile(user_id)
     media = message.video or message.document
     chosen_name = profile.get("temp_rename") or media.file_name or "video.mp4"
+    format_type = "📄 Raw File Document" if profile.get("as_document") else "🎥 Playable Media Container"
+    active_thumb = profile.get("active_preset") or "None ❌ (Uses Native Frame)"
+    
+    dashboard_ui = (
+        "🏁 **Omega Media Processing Terminal**\n\n"
+        f"📦 **Output Identity:** `{chosen_name}`\n"
+        f"⚙️ **Format Profile:** `{format_type}`\n"
+        f"🖼️ **Active Artwork Profile:** `{active_thumb}`\n"
+        f"📢 **Forward Distribution Hook:** `{profile.get('target_channel') or 'Local Delivery Mode'}`"
+    )
+    
+    row1 = [InlineKeyboardButton("🔄 Toggle Format Output Type", callback_data="ui_toggle_delivery")]
