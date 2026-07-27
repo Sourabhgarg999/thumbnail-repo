@@ -6,14 +6,13 @@ import threading
 import http.server
 
 # --- CRITICAL PYTHON 3.14+ ASYNCIO EVENT LOOP FIX ---
-# This block MUST execute before importing Pyrogram to prevent the event loop crash.
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-# Now it is completely safe to import the external libraries
+# Safe to import external frameworks now
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -32,7 +31,6 @@ def run_health_server():
     server = http.server.HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
-# Start background network thread
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # --- INFRASTRUCTURE CONFIGURATIONS ---
@@ -43,7 +41,6 @@ MONGO_URI = os.environ.get("MONGO_URI", "")
 
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
 
-# Initialize Client Instantiation
 bot = Client("omega_media_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 db_client = AsyncIOMotorClient(MONGO_URI)
@@ -171,7 +168,7 @@ async def help_command(client: Client, message: Message):
 async def set_caption(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setcaption Write your text here`")
-    caption_txt = message.text.split(None, 1)[1]
+    caption_txt = message.text.split(None, 1)
     await save_profile_update(message.from_user.id, "global_caption", caption_txt)
     await message.reply_text("✅ **Custom caption template locked successfully.**")
 
@@ -184,7 +181,7 @@ async def clear_caption(client: Client, message: Message):
 async def set_name(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setname filename.mp4` (Include extension!)")
-    target_name = message.text.split(None, 1)[1]
+    target_name = message.text.split(None, 1)
     await save_profile_update(message.from_user.id, "temp_rename", target_name)
     await message.reply_text(f"✏️ **Next queued transaction file title targeted as:** `{target_name}`")
 
@@ -192,7 +189,7 @@ async def set_name(client: Client, message: Message):
 async def set_channel(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setchannel @mychannelusername`")
-    channel_target = message.text.split(None, 1)[1]
+    channel_target = message.text.split(None, 1)
     await save_profile_update(message.from_user.id, "target_channel", channel_target)
     await message.reply_text(f"📢 **Distribution Target set to:** `{channel_target}`")
 
@@ -228,3 +225,4 @@ async def trigger_dashboard(client: Client, message: Message):
     )
     
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Toggle Format Output Type", callback_data="ui_toggle_delivery")],
