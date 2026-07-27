@@ -6,19 +6,6 @@ import threading
 import http.server
 import urllib.parse
 
-# --- CRITICAL PYTHON 3.14+ ASYNCIO EVENT LOOP FIX ---
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-# Safe to import external frameworks now
-from pyrogram import Client, filters, idle
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram.errors import FloodWait
-
 # --- RENDER PORT BINDING SYSTEM ---
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -52,6 +39,12 @@ if MONGO_URI and "@" in MONGO_URI and ":" in MONGO_URI:
         pass 
 
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
+
+# Safe to import external frameworks now within a safe event loop context
+from pyrogram import Client, filters, idle
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from motor.motor_asyncio import AsyncIOMotorClient
+from pyrogram.errors import FloodWait
 
 bot = Client("omega_media_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -228,3 +221,6 @@ async def trigger_dashboard(client: Client, message: Message):
     active_thumb = profile.get("active_preset") or "None ❌ (Uses Native Frame)"
     channel_hook = profile.get("target_channel") or "Local Delivery Mode"
     
+    dashboard_ui = (
+        f"🏁 **Omega Media Processing Terminal**\n\n"
+        f"📦 **Output Identity:** `{chosen_name}`\n"
