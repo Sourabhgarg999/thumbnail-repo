@@ -224,5 +224,4 @@ async def trigger_dashboard(client: Client, message: Message):
         f"📢 **Forward Distribution Hook:** `{profile.get('target_channel') or 'Local Delivery Mode'}`"
     )
     
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Toggle Format Output Type", callback_data="ui_toggle_delivery")],
+    keyboard = InlineKeyboardMarkup([InlineKeyboardButton("🔄 Toggle Format Output Type", callback_data="ui_toggle_delivery")],
