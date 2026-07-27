@@ -148,10 +148,9 @@ async def start_command(client: Client, message: Message):
         "📢 `/setchannel @username` — Direct distribution automation channel\n"
         "🗑️ `/clearcaption` — Switch back to auto-captioning metadata mode"
     )
-    menu_buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📖 Read System Manual", callback_data="open_help")],
-        [InlineKeyboardButton("⚙️ System Status Profile", callback_data="show_status")]
-    ])
+    btn1 = InlineKeyboardButton("📖 Read System Manual", callback_data="open_help")
+    btn2 = InlineKeyboardButton("⚙️ System Status Profile", callback_data="show_status")
+    menu_buttons = InlineKeyboardMarkup([[btn1], [btn2]])
     await message.reply_text(welcome, reply_markup=menu_buttons)
 
 @bot.on_message(filters.command("help") & filters.private & is_authorized_user())
@@ -168,7 +167,7 @@ async def help_command(client: Client, message: Message):
 async def set_caption(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setcaption Write your text here`")
-    caption_txt = message.text.split(None, 1)
+    caption_txt = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "global_caption", caption_txt)
     await message.reply_text("✅ **Custom caption template locked successfully.**")
 
@@ -181,7 +180,7 @@ async def clear_caption(client: Client, message: Message):
 async def set_name(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setname filename.mp4` (Include extension!)")
-    target_name = message.text.split(None, 1)
+    target_name = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "temp_rename", target_name)
     await message.reply_text(f"✏️ **Next queued transaction file title targeted as:** `{target_name}`")
 
@@ -189,7 +188,7 @@ async def set_name(client: Client, message: Message):
 async def set_channel(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setchannel @mychannelusername`")
-    channel_target = message.text.split(None, 1)
+    channel_target = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "target_channel", channel_target)
     await message.reply_text(f"📢 **Distribution Target set to:** `{channel_target}`")
 
@@ -224,4 +223,4 @@ async def trigger_dashboard(client: Client, message: Message):
         f"📢 **Forward Distribution Hook:** `{profile.get('target_channel') or 'Local Delivery Mode'}`"
     )
     
-    keyboard = InlineKeyboardMarkup([InlineKeyboardButton("🔄 Toggle Format Output Type", callback_data="ui_toggle_delivery")],
+    row1 = [InlineKeyboardButton("🔄 Toggle Format Output Type", callback_data="ui_toggle_delivery")]
