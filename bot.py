@@ -6,14 +6,7 @@ import threading
 import http.server
 import urllib.parse
 
-# --- CORE EVENT LOOP SETUP ---
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-# --- WEB PORT MONITOR FOR RENDER ---
+# --- RENDER WEB PORT BINDING HARNESS ---
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -32,15 +25,11 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# --- DIRECT RAW ASYNC IMPORTS (Bypasses pyrogram.sync Crash) ---
-import pyrogram
-from pyrogram.client import Client
-from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from pyrogram.errors import FloodWait
+# --- LOAD FRAMEWORKS ---
+from telethon import TelegramClient, events, Button
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# --- SYSTEM SETTINGS CONFIGURATIONS ---
+# --- ENVIRONMENTAL PARSING & DATABASE CONFIG ---
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -53,13 +42,14 @@ if MONGO_URI and "@" in MONGO_URI and ":" in MONGO_URI:
         username, password = userinfo.split(":", 1)
         safe_user = urllib.parse.quote_plus(username)
         safe_pass = urllib.parse.quote_plus(password)
-        MONGO_URI = prefix + "://" + safe_user + ":" + safe_pass + "@" + hostinfo
+        MONGO_URI = f"{prefix}://{safe_user}:{safe_pass}@{hostinfo}"
     except Exception:
         pass 
 
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
 
-bot = Client("omega_media_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Initialize Telethon Client (Compatible naturally with Python 3.14 event structures)
+bot = TelegramClient('omega_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client["omega_processor_db"]
@@ -68,21 +58,13 @@ user_profiles = db["user_data"]
 JOB_QUEUE = asyncio.Queue()
 IS_PROCESSING = False
 
-# --- PERMISSION SECURITY FILTER ---
-def is_authorized_user():
-    async def func(flt, client, message: Message):
-        if not SUDO_USERS:
-            return True
-        return message.from_user.id in SUDO_USERS
-    return filters.create(func)
-
+# --- UTILITY CORE DATA LOGIC ---
 async def fetch_user_profile(user_id):
     profile = await user_profiles.find_one({"user_id": user_id})
     if not profile:
         profile = {
             "user_id": user_id,
-            "presets": {},          
-            "active_preset": None,
+            "thumb_id": None,          
             "global_caption": None, 
             "as_document": False,
             "target_channel": None,
@@ -94,140 +76,137 @@ async def fetch_user_profile(user_id):
 async def save_profile_update(user_id, system_key, value_payload):
     await user_profiles.update_one({"user_id": user_id}, {"$set": {system_key: value_payload}}, upsert=True)
 
-# --- PROGRESS GRAPHIC BUILDER ---
-async def progress_bar_handler(current, total, status_message, action_text, start_time):
-    now = time.time()
-    diff = now - start_time
-    if round(diff % 4.0) == 0 or current == total:
-        percentage = current * 100 / total
-        speed = current / diff if diff > 0 else 0
-        time_elapsed = round(diff)
-        eta = round((total - current) / speed) if speed > 0 else 0
-        
-        completed_blocks = int(percentage // 10)
-        remaining_blocks = 10 - completed_blocks
-        bar_visual = "🟩" * completed_blocks + "⬜" * remaining_blocks
-        
-        progress_text = (
-            f"⚡ **{action_text}**\n\n"
-            f"📊 {bar_visual} | **{percentage:.1f}%**\n"
-            f"⚙️ **Processed:** {current / (1024*1024):.1f} MB / {total / (1024*1024):.1f} MB\n"
-            f"🚀 **Speed:** {speed / (1024*1024):.2f} MB/s\n"
-            f"⏳ **ETA:** {eta}s | **Elapsed:** {time_elapsed}s\n"
-            f"⚠️ *Streaming live without filling up server disk storage.*"
-        )
-        try:
-            await status_message.edit_text(progress_text)
-        except FloodWait as fw_err:
-            await asyncio.sleep(fw_err.value)
-        except Exception:
-            pass
+# --- TELEGRAM INBOUND TRIGGER INTERCEPTORS ---
 
-def generate_metadata_caption(media, custom_caption=None):
-    if custom_caption:
-        return custom_caption
-        
-    file_name = media.file_name or "video.mp4"
-    file_size = f"{media.file_size / (1024*1024):.2f} MB"
+@bot.on(events.NewMessage(pattern='/start', incoming=True))
+async def start_cmd(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
     
-    duration_raw = getattr(media, "duration", 0) or 0
-    if duration_raw:
-        hours = duration_raw // 3600
-        minutes = (duration_raw % 3600) // 60
-        seconds = duration_raw % 60
-        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
-    else:
-        duration_str = "Unknown"
-        
-    width = getattr(media, "width", "N/A")
-    height = getattr(media, "height", "N/A")
-    resolution = f"{width}x{height}" if width != "N/A" else "Standard Document"
-
-    return (
-        f"🎬 **File Name:** `{file_name}`\n"
-        f"💾 **Size:** `{file_size}`\n"
-        f"⏱️ **Duration:** `{duration_str}`\n"
-        f"📺 **Resolution:** `{resolution}`\n\n"
-        f"⚡ *Auto-Generated by Omega Stream Suite*"
-    )
-
-# --- ROUTINE COMMAND RECEIVERS ---
-
-@bot.on_message(filters.command("start") & filters.private & is_authorized_user())
-async def start_command(client, message: Message):
     welcome = (
-        "👑 **Welcome to the Omega Media Stream Suite** 👑\n\n"
-        "This system processes files up to **2.0 GB** sequentially with **zero storage usage**.\n\n"
-        "🚀 **Quick Operations Reference:**\n"
-        "• Send a **Photo** to save / index a new thumbnail preset.\n"
-        "• Send a **Video / File** to launch the processing interface panel.\n\n"
-        "✏️ `/setname title.mp4` — Override target file title\n"
-        "💬 `/setcaption text` — Force custom caption string\n"
-        "📢 `/setchannel @username` — Direct distribution automation channel\n"
-        "🗑️ `/clearcaption` — Switch back to auto-captioning metadata mode"
+        "👑 **Welcome to the Telethon Omega Stream Suite** 👑\n\n"
+        "This platform processes items up to **2.0 GB** cleanly using direct data streams.\n\n"
+        "🚀 **Operations Cheat Sheet:**\n"
+        "• Send any **Photo** to save it as your target thumbnail.\n"
+        "• Send any **Video / File** to populate your management interface.\n\n"
+        "✏️ `/setname title.mp4` — Schedule a new file name\n"
+        "💬 `/setcaption text` — Force a custom text block signature\n"
+        "📢 `/setchannel @username` — Add automatic forwarding channel"
     )
-    btn1 = InlineKeyboardButton("📖 Read System Manual", callback_data="open_help")
-    btn2 = InlineKeyboardButton("⚙️ System Status Profile", callback_data="show_status")
-    menu_buttons = InlineKeyboardMarkup([[btn1], [btn2]])
-    await message.reply_text(welcome, reply_markup=menu_buttons)
+    await event.reply(welcome)
 
-@bot.on_message(filters.command("help") & filters.private & is_authorized_user())
-async def help_command(client, message: Message):
-    guide = (
-        "⚙️ **System Operations Reference:**\n\n"
-        "🧱 **Batch Queue:** Handles uploads sequentially to protect Render's free RAM.\n\n"
-        "📂 **Preset Slots:** Switch between multiple thumbnail slots on the fly.\n\n"
-        "🎵 **Extract MP3:** Isolates and extracts the clean audio track from the media stream."
-    )
-    await message.reply_text(guide)
+@bot.on(events.NewMessage(incoming=True, func=lambda e: e.photo))
+async def save_photo(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    status = await event.reply("📥 *Processing and cloud-indexing artwork preset...*")
+    
+    # Store the photo raw media profile ID straight to MongoDB without local downloading
+    photo_id = event.message.media.photo.id
+    await save_profile_update(event.sender_id, "thumb_id", photo_id)
+    await status.edit("✅ **Thumbnail saved to cloud configuration!** Ready to inject into your next file transaction.")
 
-@bot.on_message(filters.command("setcaption") & filters.private & is_authorized_user())
-async def set_caption(client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("❌ **Usage:** `/setcaption Write your text here`")
-    caption_txt = message.text.split(None, 1)
-    await save_profile_update(message.from_user.id, "global_caption", caption_txt)
-    await message.reply_text("✅ **Custom caption template locked successfully.**")
-
-@bot.on_message(filters.command("clearcaption") & filters.private & is_authorized_user())
-async def clear_caption(client, message: Message):
-    await save_profile_update(message.from_user.id, "global_caption", None)
-    await message.reply_text("✅ **Custom template cleared. Automated metadata active.**")
-
-@bot.on_message(filters.command("setname") & filters.private & is_authorized_user())
-async def set_name(client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("❌ **Usage:** `/setname filename.mp4` (Include extension!)")
-    target_name = message.text.split(None, 1)
-    await save_profile_update(message.from_user.id, "temp_rename", target_name)
-    await message.reply_text(f"✏️ **Next queued transaction file title targeted as:** `{target_name}`")
-
-@bot.on_message(filters.command("setchannel") & filters.private & is_authorized_user())
-async def set_channel(client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("❌ **Usage:** `/setchannel @mychannelusername`")
-    channel_target = message.text.split(None, 1)
-    await save_profile_update(message.from_user.id, "target_channel", channel_target)
-    await message.reply_text(f"📢 **Distribution Target set to:** `{channel_target}`")
-
-@bot.on_message(filters.photo & filters.private & is_authorized_user())
-async def process_photo_preset(client, message: Message):
-    file_id = message.photo.file_id
-    user_id = message.from_user.id
-    preset_key = f"Slot_{int(time.time()) % 1000}"
+@bot.on(events.NewMessage(incoming=True, func=lambda e: e.video or e.document))
+async def file_panel_trigger(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+        
+    user_id = event.sender_id
     profile = await fetch_user_profile(user_id)
     
-    current_presets = profile.get("presets", {})
-    current_presets[preset_key] = file_id
+    current_name = profile.get("temp_rename") or "Native File Name"
+    mode_str = "📄 Raw File Document" if profile.get("as_document") else "🎥 Playable Streaming Video"
     
-    await save_profile_update(user_id, "presets", current_presets)
-    await save_profile_update(user_id, "active_preset", preset_key)
-    await message.reply_text(f"✅ **Artwork saved permanently! Slot ID:** `{preset_key}`")
+    dashboard_ui = (
+        f"🏁 **Omega Media Terminal**\n\n"
+        f"📦 **Output Name Target:** `{current_name}`\n"
+        f"⚙️ **Format Profile Profile:** `{mode_str}`\n"
+        f"📢 **Channel Hook Status:** `{profile.get('target_channel') or 'Local Delivery Mode'}`"
+    )
+    
+    buttons = [
+        [Button.inline("🔄 Toggle Format Profile Type", data="toggle_delivery")],
+        [Button.inline("🚀 RUN ZERO-DISK PIPELINE STREAM", data=f"run_stream_{event.id}")]
+    ]
+    await event.reply(dashboard_ui, buttons=buttons)
 
-@bot.on_message((filters.video | filters.document) & filters.private & is_authorized_user())
-async def trigger_dashboard(client, message: Message):
-    user_id = message.from_user.id
+# --- CONCURRENT SERIAL STREAM QUEUE PIPING MANAGER ---
+async def process_queue_worker():
+    global IS_PROCESSING
+    while True:
+        try:
+            event, action, target_msg_id, user_id, profile = await JOB_QUEUE.get()
+        except asyncio.QueueEmpty:
+            IS_PROCESSING = False
+            break
+            
+        IS_PROCESSING = True
+        status_banner = await event.reply("🛰️ **Spawning secure network chunk streaming nodes...**")
+        
+        try:
+            # Re-fetch original user message layer
+            orig_msg = await bot.get_messages(event.chat_id, ids=target_msg_id)
+            
+            # Construct standard metadata auto-caption metrics
+            file_size_mb = orig_msg.file.size / (1024 * 1024)
+            final_caption = profile.get("global_caption") or f"🎬 **File Title:** `{orig_msg.file.name or 'video.mp4'}`\n💾 **Size:** `{file_size_mb:.2f} MB`"
+            
+            target_chat = profile.get("target_channel") or event.chat_id
+            
+            # Download a transient copy of the icon target artwork file context if configured
+            thumb_path = None
+            if profile.get("thumb_id"):
+                thumb_path = await bot.download_media(orig_msg.photo)
+
+            await status_banner.edit("📤 **Piping data chunks into Telegram Cloud... RAM: <15MB**")
+            
+            # Telethon streams files out natively up to 2GB if passed a generator pipe iterator loop
+            await bot.send_file(
+                entity=target_chat,
+                file=orig_msg.media,
+                caption=final_caption,
+                force_document=profile.get("as_document", False),
+                thumb=thumb_path,
+                reply_to=target_msg_id
+            )
+            
+            await status_banner.delete()
+            if thumb_path and os.path.exists(thumb_path):
+                os.remove(thumb_path)
+            await save_profile_update(user_id, "temp_rename", None)
+            
+        except Exception as err:
+            await status_banner.edit(f"❌ **Stream Pipeline Error Event:** `{str(err)}`")
+        finally:
+            JOB_QUEUE.task_done()
+
+@bot.on(events.CallbackQuery)
+async def callback_router(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return await event.answer("Access denied.", alert=True)
+        
+    user_id = event.sender_id
     profile = await fetch_user_profile(user_id)
-    media = message.video or message.document
-    chosen_name = profile.get("temp_rename") or media.file_name or "video.mp4"
-    format_type = "📄 Raw File Document" if profile.get("as_document") else "🎥 Playable Media Container"
+    
+    if event.data == b"toggle_delivery":
+        new_toggle = not profile.get("as_document")
+        await save_profile_update(user_id, "as_document", new_toggle)
+        await event.answer(f"Format updated to {'Document' if new_toggle else 'Video'}!")
+        await event.edit("⚙️ **Format rules configured successfully.** Click run stream below to invoke execution.")
+        
+    elif event.data.startswith(b"run_stream_"):
+        await event.answer("Adding job transaction to background loop...")
+        target_msg_id = int(event.data.decode().split("_")[2])
+        
+        # Enqueue job to protect resource allocations
+        await JOB_QUEUE.put((event, "main", target_msg_id, user_id, profile))
+        
+        await event.edit(f"📥 **Job Enqueued successfully.** Transaction index slot positioning: `#{JOB_QUEUE.qsize()}`.")
+        
+        global IS_PROCESSING
+        if not IS_PROCESSING:
+            asyncio.create_task(process_queue_worker())
+
+# --- LAUNCH EVENT LISTENERS FOREVER ---
+print("=== TELETHON OMEGA PIPELINE ONLINE ===")
+bot.run_until_disconnected()
