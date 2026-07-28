@@ -6,13 +6,13 @@ import threading
 import http.server
 import urllib.parse
 
-# --- RENDER WEB PORT BINDING HARNESS ---
+# --- RENDER WEB PORT BINDING ALIVE SERVER ---
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
-        self.wfile.write(b"Bot Engine Live and Responsive!")
+        self.wfile.write(b"Omega Advanced Telethon Engine Live!")
     def do_HEAD(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
@@ -25,11 +25,12 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# --- LOAD FRAMEWORKS ---
+# --- LOAD ADVANCED LIBRARIES ---
 from telethon import TelegramClient, events, Button
+from telethon.tl.types import DocumentAttributeFilename, DocumentAttributeVideo, DocumentAttributeAudio
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# --- ENVIRONMENTAL PARSING & DATABASE CONFIG ---
+# --- CONFIGURATIONS & CREDENTIALS AUTO-ESCAPE ---
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -48,7 +49,7 @@ if MONGO_URI and "@" in MONGO_URI and ":" in MONGO_URI:
 
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
 
-# Initialize Telethon Client (Compatible naturally with Python 3.14 event structures)
+# Initialize Unified Telethon Client
 bot = TelegramClient('omega_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 db_client = AsyncIOMotorClient(MONGO_URI)
@@ -58,14 +59,14 @@ user_profiles = db["user_data"]
 JOB_QUEUE = asyncio.Queue()
 IS_PROCESSING = False
 
-# --- UTILITY CORE DATA LOGIC ---
+# --- MONGO CLUSTER STATE DATABASE MANAGERS ---
 async def fetch_user_profile(user_id):
     profile = await user_profiles.find_one({"user_id": user_id})
     if not profile:
         profile = {
             "user_id": user_id,
-            "thumb_id": None,          
-            "global_caption": None, 
+            "presets": {},            # Format: {"Slot_1": {"thumb": media_id, "caption": text, "watermark": text}}
+            "active_preset": None,
             "as_document": False,
             "target_channel": None,
             "temp_rename": None
@@ -82,131 +83,137 @@ async def save_profile_update(user_id, system_key, value_payload):
 async def start_cmd(event):
     if SUDO_USERS and event.sender_id not in SUDO_USERS:
         return
-    
     welcome = (
-        "👑 **Welcome to the Telethon Omega Stream Suite** 👑\n\n"
-        "This platform processes items up to **2.0 GB** cleanly using direct data streams.\n\n"
-        "🚀 **Operations Cheat Sheet:**\n"
-        "• Send any **Photo** to save it as your target thumbnail.\n"
-        "• Send any **Video / File** to populate your management interface.\n\n"
-        "✏️ `/setname title.mp4` — Schedule a new file name\n"
-        "💬 `/setcaption text` — Force a custom text block signature\n"
-        "📢 `/setchannel @username` — Add automatic forwarding channel"
+        "👑 **Welcome to the Omega Ultimate Media Suite** 👑\n\n"
+        "I am fully optimized to process files up to **2.0 GB** cleanly using streaming chunks and zero server disk space.\n\n"
+        "🚀 **Quick Operations Reference:**\n"
+        "• Send any **Photo** to save a thumbnail profile to your current active preset.\n"
+        "• Send any **Video / File** to launch the processing controller screen.\n\n"
+        "✏️ `/setname title.mp4` — Rename the next file transaction\n"
+        "💬 `/setcaption text` — Save a custom text signature stamp to the active preset\n"
+        "🏷️ `/setwatermark text` — Save a text title metadata watermark to the active preset\n"
+        "📂 `/newpreset name` — Create a new multi-preset profile slot\n"
+        "📢 `/setchannel @username` — Route uploads directly to your channel grid\n"
+        "ℹ️ `/help` — Read the core technical operations manual"
     )
-    await event.reply(welcome)
-
-@bot.on(events.NewMessage(incoming=True, func=lambda e: e.photo))
-async def save_photo(event):
-    if SUDO_USERS and event.sender_id not in SUDO_USERS:
-        return
-    status = await event.reply("📥 *Processing and cloud-indexing artwork preset...*")
-    
-    # Store the photo raw media profile ID straight to MongoDB without local downloading
-    photo_id = event.message.media.photo.id
-    await save_profile_update(event.sender_id, "thumb_id", photo_id)
-    await status.edit("✅ **Thumbnail saved to cloud configuration!** Ready to inject into your next file transaction.")
-
-@bot.on(events.NewMessage(incoming=True, func=lambda e: e.video or e.document))
-async def file_panel_trigger(event):
-    if SUDO_USERS and event.sender_id not in SUDO_USERS:
-        return
-        
-    user_id = event.sender_id
-    profile = await fetch_user_profile(user_id)
-    
-    current_name = profile.get("temp_rename") or "Native File Name"
-    mode_str = "📄 Raw File Document" if profile.get("as_document") else "🎥 Playable Streaming Video"
-    
-    dashboard_ui = (
-        f"🏁 **Omega Media Terminal**\n\n"
-        f"📦 **Output Name Target:** `{current_name}`\n"
-        f"⚙️ **Format Profile Profile:** `{mode_str}`\n"
-        f"📢 **Channel Hook Status:** `{profile.get('target_channel') or 'Local Delivery Mode'}`"
-    )
-    
     buttons = [
-        [Button.inline("🔄 Toggle Format Profile Type", data="toggle_delivery")],
-        [Button.inline("🚀 RUN ZERO-DISK PIPELINE STREAM", data=f"run_stream_{event.id}")]
+        [Button.inline("📖 Read System Manual", data="ui_manual_help")],
+        [Button.inline("⚙️ Check System Status Profile", data="ui_view_status")]
     ]
-    await event.reply(dashboard_ui, buttons=buttons)
+    await event.reply(welcome, buttons=buttons)
 
-# --- CONCURRENT SERIAL STREAM QUEUE PIPING MANAGER ---
-async def process_queue_worker():
-    global IS_PROCESSING
-    while True:
-        try:
-            event, action, target_msg_id, user_id, profile = await JOB_QUEUE.get()
-        except asyncio.QueueEmpty:
-            IS_PROCESSING = False
-            break
-            
-        IS_PROCESSING = True
-        status_banner = await event.reply("🛰️ **Spawning secure network chunk streaming nodes...**")
-        
-        try:
-            # Re-fetch original user message layer
-            orig_msg = await bot.get_messages(event.chat_id, ids=target_msg_id)
-            
-            # Construct standard metadata auto-caption metrics
-            file_size_mb = orig_msg.file.size / (1024 * 1024)
-            final_caption = profile.get("global_caption") or f"🎬 **File Title:** `{orig_msg.file.name or 'video.mp4'}`\n💾 **Size:** `{file_size_mb:.2f} MB`"
-            
-            target_chat = profile.get("target_channel") or event.chat_id
-            
-            # Download a transient copy of the icon target artwork file context if configured
-            thumb_path = None
-            if profile.get("thumb_id"):
-                thumb_path = await bot.download_media(orig_msg.photo)
-
-            await status_banner.edit("📤 **Piping data chunks into Telegram Cloud... RAM: <15MB**")
-            
-            # Telethon streams files out natively up to 2GB if passed a generator pipe iterator loop
-            await bot.send_file(
-                entity=target_chat,
-                file=orig_msg.media,
-                caption=final_caption,
-                force_document=profile.get("as_document", False),
-                thumb=thumb_path,
-                reply_to=target_msg_id
-            )
-            
-            await status_banner.delete()
-            if thumb_path and os.path.exists(thumb_path):
-                os.remove(thumb_path)
-            await save_profile_update(user_id, "temp_rename", None)
-            
-        except Exception as err:
-            await status_banner.edit(f"❌ **Stream Pipeline Error Event:** `{str(err)}`")
-        finally:
-            JOB_QUEUE.task_done()
-
-@bot.on(events.CallbackQuery)
-async def callback_router(event):
+@bot.on(events.NewMessage(pattern='/help', incoming=True))
+async def help_cmd(event):
     if SUDO_USERS and event.sender_id not in SUDO_USERS:
-        return await event.answer("Access denied.", alert=True)
-        
-    user_id = event.sender_id
-    profile = await fetch_user_profile(user_id)
-    
-    if event.data == b"toggle_delivery":
-        new_toggle = not profile.get("as_document")
-        await save_profile_update(user_id, "as_document", new_toggle)
-        await event.answer(f"Format updated to {'Document' if new_toggle else 'Video'}!")
-        await event.edit("⚙️ **Format rules configured successfully.** Click run stream below to invoke execution.")
-        
-    elif event.data.startswith(b"run_stream_"):
-        await event.answer("Adding job transaction to background loop...")
-        target_msg_id = int(event.data.decode().split("_")[2])
-        
-        # Enqueue job to protect resource allocations
-        await JOB_QUEUE.put((event, "main", target_msg_id, user_id, profile))
-        
-        await event.edit(f"📥 **Job Enqueued successfully.** Transaction index slot positioning: `#{JOB_QUEUE.qsize()}`.")
-        
-        global IS_PROCESSING
-        if not IS_PROCESSING:
-            asyncio.create_task(process_queue_worker())
+        return
+    guide = (
+        "⚙️ **System Operations Reference Help:**\n\n"
+        "🧱 **Sequential Batch Queue:** If you submit multiple massive files simultaneously, the bot puts them into an async background loop to process them one-by-one so your free server never crashes.\n\n"
+        "🏷️ **Text Title Watermarking:** Use `/setwatermark text` to permanently write text into the video's property headers. When a user streams the file or forwards it, your text shows inside the player envelope natively.\n\n"
+        "💬 **Automatic Text Signature Stamp:** Use `/setcaption text` to add a persistent signature or link under all files processed by the current preset.\n\n"
+        "📂 **Multi-Preset Manager:** Use `/newpreset name` to build custom setting configurations. Use 'Cycle Presets' on the dashboard to swap between setups."
+    )
+    await event.reply(guide)
 
-# --- LAUNCH EVENT LISTENERS FOREVER ---
-print("=== TELETHON OMEGA PIPELINE ONLINE ===")
-bot.run_until_disconnected()
+@bot.on(events.NewMessage(pattern='/newpreset(?: |$)(.*)', incoming=True))
+async def new_preset_cmd(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    preset_name = event.pattern_match.group(1).strip()
+    if not preset_name:
+        return await event.reply("❌ **Usage:** `/newpreset ProfileName` (e.g., `/newpreset AnimeChannel`)")
+    
+    profile = await fetch_user_profile(event.sender_id)
+    presets = profile.get("presets", {})
+    
+    if preset_name in presets:
+        return await event.reply("❌ That preset name already exists.")
+        
+    presets[preset_name] = {"thumb": None, "caption": None, "watermark": "Omega Suite"}
+    await save_profile_update(event.sender_id, "presets", presets)
+    await save_profile_update(event.sender_id, "active_preset", preset_name)
+    await event.reply(f"✅ **Created and switched to new preset slot:** `{preset_name}`")
+
+@bot.on(events.NewMessage(pattern='/setcaption(?: |$)(.*)', incoming=True))
+async def set_caption_cmd(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    caption_text = event.pattern_match.group(1).strip()
+    profile = await fetch_user_profile(event.sender_id)
+    active_key = profile.get("active_preset")
+    
+    if not active_key:
+        return await event.reply("❌ Please create or select a preset slot first using `/newpreset`.")
+        
+    if not caption_text:
+        return await event.reply("❌ **Usage:** `/setcaption Write your text signature here`")
+        
+    presets = profile.get("presets", {})
+    presets[active_key]["caption"] = caption_text
+    await save_profile_update(event.sender_id, "presets", presets)
+    await event.reply(f"✅ **Custom signature stamp saved to preset** `{active_key}`!")
+
+@bot.on(events.NewMessage(pattern='/setwatermark(?: |$)(.*)', incoming=True))
+async def set_watermark_cmd(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    watermark_text = event.pattern_match.group(1).strip()
+    profile = await fetch_user_profile(event.sender_id)
+    active_key = profile.get("active_preset")
+    
+    if not active_key:
+        return await event.reply("❌ Please create or select a preset slot first using `/newpreset`.")
+        
+    if not watermark_text:
+        return await event.reply("❌ **Usage:** `/setwatermark YourBrandText`")
+        
+    presets = profile.get("presets", {})
+    presets[active_key]["watermark"] = watermark_text
+    await save_profile_update(event.sender_id, "presets", presets)
+    await event.reply(f"✅ **Text envelope watermark saved to preset** `{active_key}`!")
+
+@bot.on(events.NewMessage(pattern='/setname(?: |$)(.*)', incoming=True))
+async def set_name_cmd(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    name_text = event.pattern_match.group(1).strip()
+    if not name_text:
+        return await event.reply("❌ **Usage:** `/setname movie_filename.mp4` *(Include the extension!)*")
+    await save_profile_update(event.sender_id, "temp_rename", name_text)
+    await event.reply(f"✏️ **Next file processing title scheduled as:** `{name_text}`")
+
+@bot.on(events.NewMessage(pattern='/setchannel(?: |$)(.*)', incoming=True))
+async def set_channel_cmd(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    channel_text = event.pattern_match.group(1).strip()
+    if not channel_text:
+        return await event.reply("❌ **Usage:** `/setchannel @MyChannelUsername` or numeric chat ID")
+    await save_profile_update(event.sender_id, "target_channel", channel_text)
+    await event.reply(f"📢 **Automated Distribution Target Channel set to:** `{channel_text}`")
+
+# --- PHOTO IMAGE INPUT PRESET SLOTS ---
+@bot.on(events.NewMessage(incoming=True, func=lambda e: e.photo))
+async def photo_handler(event):
+    if SUDO_USERS and event.sender_id not in SUDO_USERS:
+        return
+    
+    profile = await fetch_user_profile(event.sender_id)
+    active_key = profile.get("active_preset")
+    
+    if not active_key:
+        # Create a default slot if none exists
+        active_key = "Default"
+        profile["presets"]["Default"] = {"thumb": None, "caption": None, "watermark": "Omega Suite"}
+        await save_profile_update(event.sender_id, "active_preset", "Default")
+
+    status = await event.reply("📥 *Linking and database-indexing your thumbnail artwork...*")
+    
+    presets = profile.get("presets", {})
+    presets[active_key]["thumb"] = event.message.media
+    
+    await save_profile_update(event.sender_id, "presets", presets)
+    await status.edit(f"✅ **Thumbnail Artwork indexed directly under preset profile:** `{active_key}`!")
+
+# --- DYNAMIC INTERACTIVE CORE DASHBOARD TRIGGER ---
+@bot.on(events.NewMessage(incoming=True, func=lambda e: e.video or e.document))
