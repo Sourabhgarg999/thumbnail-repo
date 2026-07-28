@@ -34,13 +34,13 @@ if MONGO_URI and "@" in MONGO_URI and ":" in MONGO_URI:
         username, password = userinfo.split(":", 1)
         safe_user = urllib.parse.quote_plus(username)
         safe_pass = urllib.parse.quote_plus(password)
-        MONGO_URI = f"{prefix}://{safe_user}:{safe_pass}@{hostinfo}"
+        MONGO_URI = prefix + "://" + safe_user + ":" + safe_pass + "@" + hostinfo
     except Exception:
         pass 
 
 SUDO_USERS = [int(x.strip()) for x in os.environ.get("SUDO_USERS", "").split(",") if x.strip()]
 
-# Safe to import external frameworks now within a safe event loop context
+# Safe to import external frameworks now
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -172,7 +172,7 @@ async def help_command(client: Client, message: Message):
 async def set_caption(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setcaption Write your text here`")
-    caption_txt = message.text.split(None, 1)
+    caption_txt = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "global_caption", caption_txt)
     await message.reply_text("✅ **Custom caption template locked successfully.**")
 
@@ -185,7 +185,7 @@ async def clear_caption(client: Client, message: Message):
 async def set_name(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setname filename.mp4` (Include extension!)")
-    target_name = message.text.split(None, 1)
+    target_name = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "temp_rename", target_name)
     await message.reply_text(f"✏️ **Next queued transaction file title targeted as:** `{target_name}`")
 
@@ -193,7 +193,7 @@ async def set_name(client: Client, message: Message):
 async def set_channel(client: Client, message: Message):
     if len(message.command) < 2:
         return await message.reply_text("❌ **Usage:** `/setchannel @mychannelusername`")
-    channel_target = message.text.split(None, 1)
+    channel_target = message.text.split(None, 1)[1]
     await save_profile_update(message.from_user.id, "target_channel", channel_target)
     await message.reply_text(f"📢 **Distribution Target set to:** `{channel_target}`")
 
@@ -221,6 +221,5 @@ async def trigger_dashboard(client: Client, message: Message):
     active_thumb = profile.get("active_preset") or "None ❌ (Uses Native Frame)"
     channel_hook = profile.get("target_channel") or "Local Delivery Mode"
     
-    dashboard_ui = (
-        f"🏁 **Omega Media Processing Terminal**\n\n"
-        f"📦 **Output Identity:** `{chosen_name}`\n"
+    dashboard_ui = f"🏁 **Omega Media Terminal**\n\n📦 **Name:** `{chosen_name}`\n⚙️ **Type:** `{format_type}`\n🖼️ **Preset:** `{active_thumb}`\n📢 **Target:** `{channel_hook}`"
+    
